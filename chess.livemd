@@ -1,0 +1,161 @@
+<!-- livebook:{"file_entries":[{"file":{"file_system_id":"local","file_system_type":"local","path":"/Users/guy/Projects/book/data/lichess/Lichess Elite Database/lichess_elite_2013-09.pgn"},"name":"lichess_elite_2013-09.pgn","type":"file"}]} -->
+
+# Chess
+
+```elixir
+Mix.install([
+  {:chess_logic, "~> 0.3.0"},
+  {:flow, "~> 1.2.4"}])
+```
+
+## Section
+
+```elixir
+base_dir = "/Users/guy/Projects/book/data/lichess/Lichess Elite Database/"
+```
+
+```elixir
+ChessLogic.from_pgn(
+"""
+[Event "Rated Blitz game"]
+[Date "????.??.??"]
+[Round "?"]
+[White "pacal56"]
+[Black "LegendaryTeam"]
+[Result "0-1"]
+[WhiteElo "2210"]
+[BlackElo "2464"]
+[ECO "B62"]
+[Opening "Sicilian Defense: Richter-Rauzer, 6...e6"] 
+[TimeControl "180+0"]
+[UTCDate "2015.01.05"] 
+[UTCTime "20:42:50"]
+[Termination "Normal"] 
+[WhiteRatingDiff "-4"]
+[BlackRatingDiff "+8"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 Nc6 6. Bg5 e6 7. f4 h6 8.
+Bh4 Be7 9. Nf3 Nxe4 10. Nxe4 Bxh4+ 11. Nxh4 Qxh4+ 12. g3 Qd8 13. Nxd6+ Ke7
+14. Ne4 Qxd1+ 15. Rxd1 Bd7 16. Nc5 Be8 17. Bg2 b6 18. Nd3 Rc8 19. c3 Bd7
+20. O-O Rhd8 21. Rfe1 Kf8 22. Kf2 Be8 23. Bxc6 Bxc6 24. Ke3 Ba4 25. b3 Be8
+26. c4 f6 27. Nb4 Ke7 28. g4 Kf7 29. h3 g5 30. Nd3 Ke7 31. fxg5 hxg5 32.
+Nf2 Bg6 33. Ne4 Bxe4 34. Kxe4 Rxd1 35. Rxd1 Rd8 36. Rxd8 Kxd8 37. b4 Kd7
+38. a3 Kd6 39. Kd4 Kd7 40. Ke4 Ke7 41. Kd4 Kd7 42. Ke4 Kd6 43. Kd4 f5 44.
+gxf5 exf5 45. a4 a5 46. c5+ bxc5+ 47. bxc5+ Kc6 48. Ke5 f4 49. Ke4 Kxc5 50.
+h4 gxh4 51. Kxf4 Kb4 52. Kg4 Kxa4 53. Kxh4 Kb3 0-1
+"""
+) |> then(fn [game]-> game end) # Enum.at(game.history, -9).fen end) 
+```
+
+```elixir
+defmodule LoadPGN do
+  def chunk(contents) do
+    contents
+    |> Stream.chunk_while(
+      [],
+      fn elem, acc -> 
+        if String.starts_with?(elem, "[Event") do
+          {:cont, acc |> Enum.reverse() |> Enum.join(), [elem]}
+        else
+          {:cont, [elem | acc]}
+        end
+      end,
+      fn
+        [] -> {:cont, []}
+        acc -> {:cont, Enum.reverse(acc) |> Enum.join(), []}
+          end)
+    |> Stream.filter(&String.starts_with?(&1, "[Event"))
+  end
+
+  def load(pgn) do
+    ChessLogic.from_pgn(pgn)
+  rescue e ->
+    IO.puts "barfed on: #{pgn}"
+    IO.puts inspect(e)
+  end
+
+  def split(filename) do
+    if String.ends_with?(filename, ".pgn") do
+      base_name = String.trim_trailing(filename, ".pgn")
+      File.open(filename, [:read, :utf], fn file ->
+        file
+        |> IO.stream(:line)
+        |> chunk()
+        |> Stream.with_index()
+        |> Stream.each(
+          fn {pgn, i} ->
+            g = ChessLogic.from_pgn(pgn) |> hd()
+            # if length(g.history) >= 9 do
+            #   fen = Enum.at(g.history, -9).fen
+            #   #IO.puts(pgn)
+            #   IO.puts("#{i}: \"#{fen}\"")
+            # else
+            IO.puts("#{i}: -")
+            # end
+          end
+        )
+        |> Stream.run()
+      end)
+      
+    else
+      {:error, "not a .pgn"}
+    end
+  end
+end
+
+LoadPGN.split("#{base_dir}/lichess_elite_2015-01.pgn")
+```
+
+```elixir
+# Path.wildcard("#{base_dir}/*2014-05.pgn")
+# |> Enum.each(
+#   fn file ->
+#     IO.puts("file: #{file}")
+#     {:ok, contents} = File.read(file)
+#     contents
+#     |> LoadPGN.split()
+#     |> Enum.reject(& &1 == "")
+#     |> IO.inspect()
+#     |> Enum.map(&LoadPGN.load/1)
+#     |> Enum.with_index()
+#     |> Enum.each(fn {g, _i} ->
+#       IO.inspect(g)
+#       # IO.puts("game: #{i}")
+#       # Enum.at(g.history, 0).fen
+#       # |> ChessLogic.Position.from_fen()
+#       # |> ChessLogic.Position.print()
+#     end)
+#   end
+# )
+```
+
+```elixir
+
+
+# g = ChessLogic.from_pgn_file("lichess_elite_2013-09.pgn")
+# length(g)
+Path.wildcard("#{base_dir}/*2015-01.pgn")
+|> Flow.from_enumerable()
+|> Flow.flat_map(
+  fn file ->
+    file
+    |> ChessLogic.from_pgn_file()
+    |> Enum.map(fn g -> Enum.at(g.history, -21).fen end)
+  end
+)
+|> Flow.partition()
+|> Flow.reduce(
+  fn -> %{} end,
+  fn fen, map -> Map.update(map, fen, 1, & &1 + 1) end)
+|> Flow.take_sort(10, fn {_pos_a, count_a}, {_pos_b, count_b} -> count_b <= count_a end)
+|> Enum.to_list()
+|> hd()
+|> Enum.each(
+  fn {fen, count} ->
+    ChessLogic.Position.from_fen(fen) |> ChessLogic.Position.print()
+    IO.puts "occurred #{count} times"
+    end)
+
+```
+
+<!-- livebook:{"offset":4171,"stamp":{"token":"XCP.xTHh8XZQCH1YMZLnQ8byfJufqLiqs0glXcasjl2Cf6DTPis9V5AODJQs_WvqMTSSnV52m7EqTef6ZTXpwfhK8PwmcIPm4m24SSdXPQ","version":2}} -->
